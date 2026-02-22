@@ -19,7 +19,7 @@ OPERATOR_NAMES = {
     "5402": "Dublin Bus",
     "5249": "Go-Ahead Ireland",
     "5399": "Bus Éireann",
-    "5240": "Bus Éireann Expressway",
+    "5240": "BÉ Expressway",
     "5403": "Irish Rail",
     "5186": "Waterford Transit",
     "5242": "GoBus",
