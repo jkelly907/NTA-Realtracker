@@ -7,7 +7,7 @@ from google.transit import gtfs_realtime_pb2
 
 app = Flask(__name__)
 
-API_KEY = os.environ.get("NTA_API_KEY", "")  # <-- Replace with your NTA API key
+API_KEY = "YOUR_KEY_HERE"  # <-- Replace with your NTA API key
 
 VEHICLES_URL = "https://api.nationaltransport.ie/gtfsr/v2/Vehicles"
 TRIP_UPDATES_URL = "https://api.nationaltransport.ie/gtfsr/v2/TripUpdates"
@@ -46,46 +46,95 @@ live_cache = {
 UPDATES_TTL = 60
 
 
-def load_csv(filename):
+STATIC_GTFS_URL = "https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip"
+
+# Only load data for operators actually in the NTA live feed
+ACTIVE_PREFIXES = {'5186', '5240', '5249', '5399', '5402'}
+
+def download_gtfs_if_missing():
+    """
+    Download the GTFS zip from Transport for Ireland and extract only the
+    files we need. Streams the zip to avoid loading the whole thing into RAM.
+    """
+    needed = ['routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt']
+    missing = [f for f in needed if not os.path.exists(os.path.join(BASE_DIR, f))]
+    if not missing:
+        return
+    print(f"📦 Missing files — downloading GTFS zip...")
+    try:
+        import zipfile, io
+        response = requests.get(STATIC_GTFS_URL, timeout=180)
+        z = zipfile.ZipFile(io.BytesIO(response.content))
+        for name in needed:
+            if name in z.namelist():
+                z.extract(name, BASE_DIR)
+                print(f"  ✅ Extracted {name}")
+        print("✅ GTFS download complete")
+    except Exception as e:
+        print(f"⚠️  GTFS download failed: {e}")
+
+
+def load_csv_filtered(filename):
+    """Read a CSV file row by row — never loads the whole file into memory."""
     path = os.path.join(BASE_DIR, filename)
     if not os.path.exists(path):
-        print(f"⚠️  {filename} not found in {BASE_DIR}")
-        return []
+        print(f"⚠️  {filename} not found")
+        return
     with open(path, encoding='utf-8-sig') as f:
-        return list(csv.DictReader(f))
+        for row in csv.DictReader(f):
+            yield row
 
 
 def load_static_gtfs():
-    print("📂 Loading static GTFS from local files...")
+    print("📂 Loading static GTFS (active operators only)...")
 
+    # Routes — only keep routes from our 5 active operators
     routes = {}
-    for row in load_csv('routes.txt'):
-        routes[row['route_id']] = {
-            'short_name': row.get('route_short_name', '').strip(),
-            'long_name':  row.get('route_long_name', '').strip(),
-        }
+    for row in load_csv_filtered('routes.txt'):
+        rid = row['route_id']
+        prefix = rid.split('_')[0] if '_' in rid else ''
+        if prefix in ACTIVE_PREFIXES:
+            routes[rid] = {
+                'short_name': row.get('route_short_name', '').strip(),
+                'long_name':  row.get('route_long_name', '').strip(),
+            }
 
+    active_route_ids = set(routes.keys())
+
+    # Trips — only keep trips for active routes
     trips = {}
-    for row in load_csv('trips.txt'):
-        trips[row['trip_id']] = {
-            'route_id': row.get('route_id', ''),
-            'headsign': row.get('trip_headsign', '').strip(),
-        }
+    active_trip_ids = set()
+    for row in load_csv_filtered('trips.txt'):
+        if row['route_id'] in active_route_ids:
+            trips[row['trip_id']] = {
+                'route_id': row['route_id'],
+                'headsign': row.get('trip_headsign', '').strip(),
+            }
+            active_trip_ids.add(row['trip_id'])
 
+    # Stops — collect only stops used by active trips
+    # First pass: find which stop_ids are needed
+    needed_stops = set()
+    for row in load_csv_filtered('stop_times.txt'):
+        if row['trip_id'] in active_trip_ids:
+            needed_stops.add(row['stop_id'])
+
+    # Load only those stops
     stops = {}
-    for row in load_csv('stops.txt'):
-        stops[row['stop_id']] = {
-            'name': row.get('stop_name', '').strip(),
-            'lat':  float(row.get('stop_lat', 0) or 0),
-            'lon':  float(row.get('stop_lon', 0) or 0),
-        }
+    for row in load_csv_filtered('stops.txt'):
+        if row['stop_id'] in needed_stops:
+            stops[row['stop_id']] = {
+                'name': row.get('stop_name', '').strip(),
+                'lat':  float(row.get('stop_lat', 0) or 0),
+                'lon':  float(row.get('stop_lon', 0) or 0),
+            }
 
-    # stop_times.txt maps each trip to its ordered list of stops.
-    # We sort by stop_sequence so we can find "which stop comes next"
-    # for any given vehicle based on where it currently is in its trip.
+    # Stop times — second pass, only active trips
     stop_times = {}
-    for row in load_csv('stop_times.txt'):
+    for row in load_csv_filtered('stop_times.txt'):
         tid = row['trip_id']
+        if tid not in active_trip_ids:
+            continue
         if tid not in stop_times:
             stop_times[tid] = []
         stop_times[tid].append({
@@ -93,7 +142,7 @@ def load_static_gtfs():
             'stop_sequence': int(row.get('stop_sequence', 0)),
             'arrival_time':  row.get('arrival_time', ''),
         })
-    # Sort each trip's stops by sequence number
+
     for tid in stop_times:
         stop_times[tid].sort(key=lambda x: x['stop_sequence'])
 
@@ -209,6 +258,13 @@ def fetch_vehicles():
 
     except Exception as e:
         print(f"⚠️  Vehicles fetch failed: {e} — keeping cached data")
+        # Log response status if available to help diagnose API key issues
+        try:
+            print(f"    API response status: {response.status_code}")
+            if response.status_code != 200:
+                print(f"    Response text: {response.text[:200]}")
+        except:
+            pass
 
 
 def fetch_trip_updates():
@@ -333,9 +389,13 @@ def trip_route(trip_id):
     return jsonify({'stops': stops_out, 'polyline': polyline})
 
 
+# Run startup tasks regardless of how the app is launched
+# (works with both `python app.py` and gunicorn/Railway)
+print("\n🚌 NTA Live Tracker starting...")
+download_gtfs_if_missing()
+load_static_gtfs()
+
 if __name__ == '__main__':
-    print("\n🚌 NTA Live Tracker starting...")
-    load_static_gtfs()
-    print("📍 Open http://localhost:8080 in your browser\n")
     port = int(os.environ.get("PORT", 8080))
+    print("📍 Open http://localhost:" + str(port) + " in your browser\n")
     app.run(host='0.0.0.0', port=port, debug=False)
