@@ -566,14 +566,9 @@ function updateMarkers(vehicles) {
     if (!ids.has(id)) { map.removeLayer(markers[id]); delete markers[id]; }
   });
   vehicles.forEach(function(v) {
-    var prev = posHistory[v.id];
-    var bearing = null;
-    if (prev) {
-      var dlat = Math.abs(v.lat - prev.lat), dlon = Math.abs(v.lon - prev.lon);
-      if (dlat > 0.0001 || dlon > 0.0001) bearing = calcBearing(prev.lat, prev.lon, v.lat, v.lon);
-    }
-    posHistory[v.id] = { lat: v.lat, lon: v.lon };
-    v.computedBearing = bearing;
+    // Bearing now comes from the server — calculated from position history
+    // stored across refreshes, so arrows show correctly from first load
+    v.computedBearing = v.bearing;
 
     var icon    = makeIcon(v);
     var tooltip = '<strong>' + (v.route_name || v.route_id) + '</strong>'

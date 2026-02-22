@@ -7,7 +7,7 @@ from google.transit import gtfs_realtime_pb2
 
 app = Flask(__name__)
 
-API_KEY = os.environ.get("NTA_API_KEY", "") # <-- Replace with your NTA API key
+API_KEY = os.environ.get("NTA_API_KEY", "")
 
 VEHICLES_URL = "https://api.nationaltransport.ie/gtfsr/v2/Vehicles"
 TRIP_UPDATES_URL = "https://api.nationaltransport.ie/gtfsr/v2/TripUpdates"
@@ -42,8 +42,20 @@ live_cache = {
     'stats': {'total': 0, 'on_time': 0, 'delayed': 0, 'early': 0},
     'vehicles_fetched_at': 0,
     'updates_fetched_at': 0,
+    'pos_history': {},   # vehicle_id -> {lat, lon} from previous fetch
 }
 UPDATES_TTL = 60
+
+
+import math
+
+def calc_bearing(lat1, lon1, lat2, lon2):
+    """Calculate compass bearing between two GPS coordinates."""
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    dlon = lon2 - lon1
+    y = math.sin(dlon) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
 
 
 STATIC_GTFS_URL = "https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip"
@@ -208,8 +220,19 @@ def fetch_vehicles():
                 trip_id    = v.trip.trip_id
                 short_name, headsign = resolve_route_name(route_id, trip_id)
 
+                # Calculate bearing from previous position if available
+                vid  = entity.id
+                prev = live_cache['pos_history'].get(vid)
+                bearing = None
+                if prev:
+                    dlat = abs(lat - prev['lat'])
+                    dlon = abs(lon - prev['lon'])
+                    if dlat > 0.0001 or dlon > 0.0001:
+                        bearing = round(calc_bearing(prev['lat'], prev['lon'], lat, lon), 1)
+                live_cache['pos_history'][vid] = {'lat': lat, 'lon': lon}
+
                 vehicles.append({
-                    'id':            entity.id,
+                    'id':            vid,
                     'trip_id':       trip_id,
                     'route_id':      route_id,
                     'route_name':    short_name,
@@ -217,7 +240,7 @@ def fetch_vehicles():
                     'operator':      get_operator(route_id),
                     'lat':           lat,
                     'lon':           lon,
-                    'bearing':       v.position.bearing,
+                    'bearing':       bearing,
                     'speed':         round(v.position.speed * 3.6, 1) if v.position.speed else None,
                     'vehicle_id':    v.vehicle.id,
                     'vehicle_label': v.vehicle.label or v.vehicle.id,
