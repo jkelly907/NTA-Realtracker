@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Irish Transit Live Tracker</title>
+<title>NTA Live Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600;700&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -128,6 +128,9 @@
     padding: 8px 12px !important; box-shadow: 0 4px 16px rgba(0,0,0,.6) !important;
   }
   .vehicle-tooltip::before { display: none !important; }
+  #locate-btn:hover { border-color: var(--accent); color: var(--accent); }
+  #locate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  @media (max-width: 768px) { #locate-btn span { display: none; } }
 
   /* ── MOBILE ─────────────────────────────────────────────────────────── */
   @media (max-width: 768px) {
@@ -203,8 +206,8 @@
 
 <div class="loading-overlay" id="loading">
   <div class="spinner"></div>
-  <div class="loading-text">IRISH TRANSIT LIVE TRACKER</div>
-  <div class="loading-sub">FETCHING REAL-TIME DATA FROM NTA API...</div>
+  <div class="loading-text">NTA LIVE TRACKER</div>
+  <div class="loading-sub">FETCHING REAL-TIME DATA...</div>
 </div>
 
 <header>
@@ -212,13 +215,21 @@
     <div class="logo-icon">🚌</div>
     <div>
       <h1>NTA LIVE TRACKER</h1>
-      <span>NTA REAL TIME — Ireland</span>
+      <span>National Transport Authority — Ireland</span>
     </div>
   </div>
-  <div class="refresh-info">
-    <strong><span class="live-dot"></span><span id="live-label">LIVE</span></strong>
-    Refreshes in <span id="countdown">30</span>s &nbsp;
-    <span id="data-age" style="font-size:10px;color:var(--muted)"></span>
+  <div style="display:flex;align-items:center;gap:16px">
+    <button id="locate-btn" onclick="locateMe()" style="
+      background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-family: 'Chakra Petch', sans-serif; font-size: 11px;
+      letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 12px;
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+    ">📍 My Location</button>
+    <div class="refresh-info">
+      <strong><span class="live-dot"></span><span id="live-label">LIVE</span></strong>
+      Refreshes in <span id="countdown">30</span>s &nbsp;
+      <span id="data-age" style="font-size:10px;color:var(--muted)"></span>
+    </div>
   </div>
 </header>
 
@@ -589,6 +600,52 @@ function updateMarkers(vehicles) {
 }
 
 // ── Data fetch ─────────────────────────────────────────────────────────────
+function locateMe() {
+  var btn = document.getElementById('locate-btn');
+  if (!navigator.geolocation) {
+    alert('Geolocation is not supported by your browser.');
+    return;
+  }
+  btn.textContent = '⏳ Locating...';
+  btn.disabled = true;
+
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      var lat = pos.coords.latitude;
+      var lon = pos.coords.longitude;
+
+      // Zoom map to user location
+      map.setView([lat, lon], 14);
+
+      // Add or update a user location marker
+      if (window.userMarker) {
+        window.userMarker.setLatLng([lat, lon]);
+      } else {
+        window.userMarker = L.circleMarker([lat, lon], {
+          radius: 8,
+          fillColor: '#fff',
+          color: '#169B62',
+          weight: 3,
+          fillOpacity: 1,
+        }).addTo(map).bindTooltip('You are here', { className: 'vehicle-tooltip' });
+      }
+
+      btn.textContent = '📍 My Location';
+      btn.disabled = false;
+    },
+    function(err) {
+      btn.textContent = '📍 My Location';
+      btn.disabled = false;
+      if (err.code === 1) {
+        alert('Location access denied. Please allow location access in your browser settings.');
+      } else {
+        alert('Could not get your location. Please try again.');
+      }
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
 function fetchData() {
   var ctrl    = new AbortController();
   var timeout = setTimeout(function() { ctrl.abort(); }, 15000);
