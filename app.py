@@ -7,7 +7,7 @@ from google.transit import gtfs_realtime_pb2
 
 app = Flask(__name__)
 
-API_KEY = "YOUR_KEY_HERE"  # <-- Replace with your NTA API key
+API_KEY = os.environ.get("NTA_API_KEY", "")  # <-- Replace with your NTA API key
 
 VEHICLES_URL = "https://api.nationaltransport.ie/gtfsr/v2/Vehicles"
 TRIP_UPDATES_URL = "https://api.nationaltransport.ie/gtfsr/v2/TripUpdates"
