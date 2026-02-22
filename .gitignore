@@ -1,0 +1,15 @@
+cat > .gitignore << 'EOF'
+.env
+__pycache__/
+*.pyc
+.DS_Store
+EOF
+echo "stop_times.txt
+stops.txt
+trips.txt
+routes.txt
+shapes.txt
+agency.txt
+calendar.txt
+calendar_dates.txt
+feed_info.txt" >> .gitignore
