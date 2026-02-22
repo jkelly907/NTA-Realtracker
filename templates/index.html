@@ -128,6 +128,75 @@
     padding: 8px 12px !important; box-shadow: 0 4px 16px rgba(0,0,0,.6) !important;
   }
   .vehicle-tooltip::before { display: none !important; }
+
+  /* ── MOBILE ─────────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    /* Compact header */
+    header { padding: 0 14px; height: 48px; }
+    .logo h1 { font-size: 14px; }
+    .logo span { display: none; }
+    .logo-icon { width: 28px; height: 28px; font-size: 15px; }
+    #data-age { display: none; }
+
+    /* Stats bar — horizontal scroll, no pie chart */
+    .stats-bar { padding: 0 14px; gap: 16px; overflow-x: auto; height: 40px; }
+    .stat-value { font-size: 16px; }
+    .pie-wrap { display: none; }
+
+    /* Map fills entire remaining space */
+    .main { position: relative; }
+    #map { position: absolute; inset: 0; z-index: 1; }
+
+    /* Sidebar becomes a bottom sheet */
+    .sidebar {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      width: 100%;
+      height: 52px;           /* collapsed: just the handle bar */
+      max-height: 70vh;
+      border-right: none;
+      border-top: 1px solid var(--border);
+      border-radius: 16px 16px 0 0;
+      z-index: 800;
+      transition: height 0.3s ease;
+      overflow: hidden;
+    }
+    .sidebar.open { height: 70vh; }
+
+    /* Drag handle at top of bottom sheet */
+    .sidebar-header {
+      justify-content: center;
+      cursor: pointer;
+      padding: 10px 20px 8px;
+      position: relative;
+    }
+    .sidebar-header::before {
+      content: '';
+      display: block;
+      width: 36px; height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      position: absolute;
+      top: 8px; left: 50%; transform: translateX(-50%);
+    }
+    .sidebar-title { margin-top: 6px; }
+
+    /* Filter tabs — scrollable */
+    .filter-tabs { overflow-x: auto; flex-wrap: nowrap; }
+    .tab { white-space: nowrap; flex-shrink: 0; }
+
+    /* Detail panel — full width bottom sheet */
+    .detail-panel {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      width: 100%;
+      border-radius: 16px 16px 0 0;
+      border-left: none; border-right: none; border-bottom: none;
+      max-height: 60vh;
+      z-index: 1000;
+    }
+    .detail-body { max-height: calc(60vh - 60px); }
+  }
 </style>
 </head>
 <body>
@@ -477,6 +546,10 @@ function selectVehicle(id) {
   }
 
   document.getElementById('detail-panel').classList.add('visible');
+  // On mobile, collapse the bottom sheet when detail opens
+  if (window.innerWidth <= 768) {
+    document.querySelector('.sidebar').classList.remove('open');
+  }
 }
 
 function closeDetail() {
@@ -564,6 +637,17 @@ setTimeout(function() {
 
 fetchData();
 startCountdown();
+
+// Mobile bottom sheet toggle
+var sidebarEl = document.querySelector('.sidebar');
+var sidebarHeader = document.querySelector('.sidebar-header');
+if (sidebarHeader) {
+  sidebarHeader.addEventListener('click', function() {
+    if (window.innerWidth <= 768) {
+      sidebarEl.classList.toggle('open');
+    }
+  });
+}
 </script>
 </body>
 </html>
