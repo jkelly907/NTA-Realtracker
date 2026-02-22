@@ -7,7 +7,7 @@ from google.transit import gtfs_realtime_pb2
 
 app = Flask(__name__)
 
-API_KEY = os.environ.get("NTA_API_KEY", "")  # <-- Replace with your NTA API key
+API_KEY = os.environ.get("NTA_API_KEY", "") # <-- Replace with your NTA API key
 
 VEHICLES_URL = "https://api.nationaltransport.ie/gtfsr/v2/Vehicles"
 TRIP_UPDATES_URL = "https://api.nationaltransport.ie/gtfsr/v2/TripUpdates"
@@ -56,7 +56,7 @@ def download_gtfs_if_missing():
     Download the GTFS zip from Transport for Ireland and extract only the
     files we need. Streams the zip to avoid loading the whole thing into RAM.
     """
-    needed = ['routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt']
+    needed = ['routes.txt', 'trips.txt', 'stops.txt']  # skip stop_times.txt — too large for free tier
     missing = [f for f in needed if not os.path.exists(os.path.join(BASE_DIR, f))]
     if not missing:
         return
@@ -112,39 +112,19 @@ def load_static_gtfs():
             }
             active_trip_ids.add(row['trip_id'])
 
-    # Stops — collect only stops used by active trips
-    # First pass: find which stop_ids are needed
-    needed_stops = set()
-    for row in load_csv_filtered('stop_times.txt'):
-        if row['trip_id'] in active_trip_ids:
-            needed_stops.add(row['stop_id'])
-
-    # Load only those stops
+    # Load all stops — stops.txt is small enough to load fully
     stops = {}
     for row in load_csv_filtered('stops.txt'):
-        if row['stop_id'] in needed_stops:
-            stops[row['stop_id']] = {
-                'name': row.get('stop_name', '').strip(),
-                'lat':  float(row.get('stop_lat', 0) or 0),
-                'lon':  float(row.get('stop_lon', 0) or 0),
-            }
+        stops[row['stop_id']] = {
+            'name': row.get('stop_name', '').strip(),
+            'lat':  float(row.get('stop_lat', 0) or 0),
+            'lon':  float(row.get('stop_lon', 0) or 0),
+        }
 
-    # Stop times — second pass, only active trips
+    # Skip stop_times.txt on low-memory environments — it is 200MB+
+    # and causes crashes on Railway free tier. Stop sequence data
+    # comes from the live trip updates instead.
     stop_times = {}
-    for row in load_csv_filtered('stop_times.txt'):
-        tid = row['trip_id']
-        if tid not in active_trip_ids:
-            continue
-        if tid not in stop_times:
-            stop_times[tid] = []
-        stop_times[tid].append({
-            'stop_id':       row['stop_id'],
-            'stop_sequence': int(row.get('stop_sequence', 0)),
-            'arrival_time':  row.get('arrival_time', ''),
-        })
-
-    for tid in stop_times:
-        stop_times[tid].sort(key=lambda x: x['stop_sequence'])
 
     static_cache['routes']     = routes
     static_cache['trips']      = trips
@@ -152,8 +132,7 @@ def load_static_gtfs():
     static_cache['stop_times'] = stop_times
     static_cache['loaded_at']  = time.time()
 
-    print(f"✅ Loaded: {len(routes)} routes, {len(trips)} trips, "
-          f"{len(stops)} stops, {len(stop_times)} trip timetables")
+    print(f"✅ Loaded: {len(routes)} routes, {len(trips)} trips, {len(stops)} stops")
 
 
 def ensure_static_loaded():
